@@ -30,7 +30,6 @@ day8a_compute !entries =
     concatMap outputDigits entries
 
 type Signal = Char
-type Segment = Char
 type Digit = Int
 
 type Pattern = Set Signal
@@ -119,98 +118,131 @@ be cfbegad cbdgef fgaecd cgeb fdcge agebfd fecdb fabcd edb
 1  8                     4                             7 
 -}
 
-signalToSegmentMappings :: DisplayEntry -> Map Signal Segment
-signalToSegmentMappings DisplayEntry{..}
-    | Just onePattern   <- find (\p -> Set.size p == 2) signalPatterns
-    , Just fourPattern  <- find (\p -> Set.size p == 4) signalPatterns
-    , Just sevenPattern <- find (\p -> Set.size p == 3) signalPatterns
-    , Just eightPattern <- find (\p -> Set.size p == 7) signalPatterns
-    , [aSegSignal]      <- Set.toList $ sevenPattern `Set.difference` onePattern
-    , bdSegSignals      <- fourPattern `Set.difference` onePattern
-    , Just fivePattern  <- find (\p -> Set.size p == 5 && Set.isSubsetOf bdSegSignals p) signalPatterns
-    , Just zeroPattern  <- find (\p -> Set.size p == 6 && not (Set.isSubsetOf bdSegSignals p)) signalPatterns
-    , [dSegSignal]      <- Set.toList $ eightPattern `Set.difference` zeroPattern
-    , [fSegSignal]      <- Set.toList $ onePattern `Set.intersection` fivePattern
-    , [cSegSignal]      <- Set.toList $ onePattern `Set.difference` fivePattern
-    , Just threePattern <- find (\p ->
-                                    Set.size p == 5
-                                    && not (Set.isSubsetOf bdSegSignals p)
-                                    && Set.isSubsetOf onePattern p
-                                ) signalPatterns
-    , Just twoPattern   <- find (\p ->
-                                    Set.size p == 5
-                                    && not (Set.isSubsetOf bdSegSignals p)
-                                    && p /= threePattern
-                                ) signalPatterns
-    , [eSegSignal]      <- Set.toList $ twoPattern `Set.difference` threePattern
-    , [bSegSignal]      <- Set.toList $ (fivePattern `Set.difference` twoPattern) `Set.difference` onePattern
-    , [gSegSignal]      <- Set.toList $ eightPattern `Set.difference` Set.fromList [aSegSignal, bSegSignal, cSegSignal, dSegSignal, eSegSignal, fSegSignal]
-    =
-        -- traceVal "___ onePattern = " onePattern `seq`
-        -- traceVal "___ fourPattern = " fourPattern `seq`
-        -- traceVal "___ sevenPattern = " sevenPattern `seq`
-        -- traceVal "___ eightPattern = " eightPattern `seq`
-        -- traceVal "___ aSegSignal = " aSegSignal `seq`
-        -- traceVal "___ bdSegSignals = " bdSegSignals `seq`
-        -- traceVal "___ zeroPattern = " zeroPattern `seq`
-        -- traceVal "___ fivePattern = " fivePattern `seq`
-        -- traceVal "___ dSegSignal = " dSegSignal `seq`
-        -- traceVal "___ fSegSignal = " fSegSignal `seq`
-        -- traceVal "___ cSegSignal = " cSegSignal `seq`
-        -- traceVal "___ threePattern = " threePattern `seq`
-        -- traceVal "___ twoPattern = " twoPattern `seq`
-        -- traceVal "___ eSegSignal = " eSegSignal `seq`
-        -- traceVal "___ bSegSignal = " bSegSignal `seq`
-        -- traceVal "___ gSegSignal = " gSegSignal `seq`
-        -- traceMap "signalToSegmentMappings = " $
-        Map.fromList [ (aSegSignal, 'a')
-                     , (bSegSignal, 'b')
-                     , (cSegSignal, 'c')
-                     , (dSegSignal, 'd')
-                     , (eSegSignal, 'e')
-                     , (fSegSignal, 'f')
-                     , (gSegSignal, 'g')
-                     ]
-    | otherwise
-    = panic "could not extract signal mappings"
 
-translatePattern :: Map Signal Segment -> Pattern -> Digit
-translatePattern !signalToSegMap !pattern =
+translateDisplayEntryOutput_NEW :: DisplayEntry -> Int
+translateDisplayEntryOutput_NEW DisplayEntry{..} =
     let
-        translatedPattern :: Pattern
-        translatedPattern =
-            Set.map (\sig -> fromMaybe (panic "unexpected: failed to look up signal segment") $
-            Map.lookup sig signalToSegMap) pattern
-    in
-        fromMaybe (panic $ "unexpected: failed to look up digit for signal pattern: " <> showPattern pattern <> " - translated pattern: " <> showPattern translatedPattern) $
-        Map.lookup translatedPattern signalPatternToDigitMap
+        allDigs :: Set Int
+        allDigs = Set.fromList [0..9]
 
-translateDisplayEntryOutput :: DisplayEntry -> Int
-translateDisplayEntryOutput de@DisplayEntry{..} =
-    let
-        signalToSegMap :: Map Signal Segment
-        signalToSegMap = signalToSegmentMappings de
+        -- Start with all possible digits for each pattern.
+        patternPossibilities0 :: Map Pattern (Set Int)
+        patternPossibilities0 =
+            Map.fromList $
+            map (,allDigs) signalPatterns
+
+        -- Limit the digit options based on the length of each pattern.
+        patternPossibilities1 :: Map Pattern (Set Int)
+        patternPossibilities1 =
+            Map.mapWithKey (\ptrn digs ->
+                                Set.filter (\d -> nSegmentsForDigit d == Set.size ptrn) digs
+                           ) patternPossibilities0
+
+        extractSinglePatternForDigit :: Map Pattern (Set Int) -> Int -> Pattern
+        extractSinglePatternForDigit !patternPossibilities !dig =
+            case find (\(_p,ds) -> ds == Set.singleton dig) $ Map.toList patternPossibilities of
+            Nothing -> panic $ "could not find a pattern with the single possible digit: " <> show dig
+            Just (p,_ds) -> p
+
+        pattern1 = extractSinglePatternForDigit patternPossibilities1 1
+        pattern4 = extractSinglePatternForDigit patternPossibilities1 4
+        -- pattern7 = extractSinglePatternForDigit patternPossibilities1 7
+        -- pattern8 = extractSinglePatternForDigit patternPossibilities1 8
+
+        -- If we know the signals corresponding to digit segments, then filter the digit possibilities for each
+        -- signal pattern based on whether the signal pattern contains the signals and whether the digits contain
+        -- the correponding segments.
+        filterBySegmentPresence :: Pattern -> Pattern -> Map Pattern (Set Int) -> Map Pattern (Set Int)
+        filterBySegmentPresence !signalPattern !digitSegments !patternPossibs =
+            Map.mapWithKey (\ptrn digs ->
+                                let
+                                    signalContainsPattern :: Bool
+                                    signalContainsPattern = signalPattern `Set.isSubsetOf` ptrn
+                                in
+                                    Set.filter (\d -> digitContainsSegments d digitSegments == signalContainsPattern) digs
+                           ) patternPossibs        
+
+        -- Filter down the options based on which digits contain the 2 segments for a "1".
+        patternPossibilities2 :: Map Pattern (Set Int)
+        patternPossibilities2 =
+            filterBySegmentPresence pattern1 (lookupDigitSegments 1) patternPossibilities1
+
+        -- Filter down the options based on which digits contain the top-left and middle segments.
+        -- We can work out the signals for this by taking the '4' pattern and removing the '1' pattern signals.
+        patternPossibilities3 :: Map Pattern (Set Int)
+        patternPossibilities3 =
+            filterBySegmentPresence (pattern4 `Set.difference` pattern1)
+                                    (lookupDigitSegments 4 `Set.difference` lookupDigitSegments 1)
+                                    patternPossibilities2
+
+        -- Fetch the single digit possiblity for a given pattern.
+        -- Throw an error if there are still multiple possibilities.
+        lookupDigitForSignalPattern :: Pattern -> Int
+        lookupDigitForSignalPattern !sigPattern
+            | Just possibs <- Map.lookup sigPattern patternPossibilities3
+            , [singlePoss] <- Set.toList possibs
+            = singlePoss
+            | otherwise
+            = panic $ "could not find a single possible digit for signal pattern: " <> show sigPattern
 
         translatedDigits :: [Int]
-        translatedDigits = translatePattern signalToSegMap <$> outputDigits
+        translatedDigits = lookupDigitForSignalPattern <$> outputDigits
+
+        outputVal :: Int
+        outputVal =
+            foldl' (\cur dig -> cur * 10 + dig) 0 translatedDigits
     in
-        foldl' (\cur dig -> cur * 10 + dig) 0 translatedDigits
+        -- traceMap "patternPossibilities0 = " patternPossibilities0 `seq`
+        -- traceMap "patternPossibilities1 = " patternPossibilities1 `seq`
+        -- traceVal "pattern1 = " pattern1 `seq`
+        -- traceVal "pattern4 = " pattern4 `seq`
+        -- traceVal "pattern7 = " pattern7 `seq`
+        -- traceVal "pattern8 = " pattern8 `seq`
+        -- traceMap "patternPossibilities2 = " patternPossibilities2 `seq`
+        -- traceMap "patternPossibilities3 = " patternPossibilities3 `seq`
+        outputVal
+
+nSegmentsForDigit :: Int -> Int
+nSegmentsForDigit 0 = 6
+nSegmentsForDigit 1 = 2
+nSegmentsForDigit 2 = 5
+nSegmentsForDigit 3 = 5
+nSegmentsForDigit 4 = 4
+nSegmentsForDigit 5 = 5
+nSegmentsForDigit 6 = 6
+nSegmentsForDigit 7 = 3
+nSegmentsForDigit 8 = 7
+nSegmentsForDigit 9 = 6
+nSegmentsForDigit _ = panic "unexpected digit value"
 
 
-signalPatternToDigitMap :: Map Pattern Digit
-signalPatternToDigitMap =
+digitContainsSegments :: Digit -> Pattern -> Bool
+digitContainsSegments !dig !segs
+    | Just digSegs <- Map.lookup dig segmentsForDigit
+    = segs `Set.isSubsetOf` digSegs
+    | otherwise = panic "unexpected: digitContainsSegments"
+    
+
+segmentsForDigit :: Map Digit Pattern
+segmentsForDigit =
     Map.fromList [
-        (patternFromText "abcefg", 0)
-      , (patternFromText "cf", 1)
-      , (patternFromText "acdeg", 2)
-      , (patternFromText "acdfg", 3)
-      , (patternFromText "bcdf", 4)
-      , (patternFromText "abdfg", 5)
-      , (patternFromText "abdefg", 6)
-      , (patternFromText "acf", 7)
-      , (patternFromText "abcdefg", 8)
-      , (patternFromText "abcdfg", 9)
+        (0, patternFromText "abcefg" )
+      , (1, patternFromText "cf"     )
+      , (2, patternFromText "acdeg"  )
+      , (3, patternFromText "acdfg"  )
+      , (4, patternFromText "bcdf"   )
+      , (5, patternFromText "abdfg"  )
+      , (6, patternFromText "abdefg" )
+      , (7, patternFromText "acf"    )
+      , (8, patternFromText "abcdefg")
+      , (9, patternFromText "abcdfg" )
     ]
+
+lookupDigitSegments :: Digit -> Pattern
+lookupDigitSegments !d =
+    fromMaybe (panic $ "failed to find pattern for digit: " <> show d) $
+    Map.lookup d segmentsForDigit
+
 
 {--
 from 1:     b/e -> c/f  right segs
@@ -286,4 +318,4 @@ day8b = do
 
 day8b_compute :: [DisplayEntry] -> [Int]
 day8b_compute !entries =
-    map translateDisplayEntryOutput entries
+    map translateDisplayEntryOutput_NEW entries
