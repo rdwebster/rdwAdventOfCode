@@ -2,6 +2,7 @@ module Utils
     ( fst3, snd3, thd3
     , mapIndexed
     , mapJoin
+    , textToInt
     , traceVal
     , traceList
     , traceSet
@@ -19,7 +20,14 @@ import qualified Data.IntMap.Strict as IntMap
 import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text as T
 import Debug.Trace (trace)
+
+
+-- | Parsers an integer value from Text.
+textToInt :: Text -> Maybe Int
+textToInt !txt =
+    readMaybe $ T.unpack txt
 
 
 -- | Concatenates lists of values (or Strings) produced by a mapping function with the specified separator between each.
