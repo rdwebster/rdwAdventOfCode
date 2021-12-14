@@ -9,21 +9,21 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import qualified Prelude
 
--- import Utils
+import Utils
 
 
 -- | Answer: 2851
 day14a :: IO ()
 day14a = do
     (template, insertionRules) :: (PolymerTemplate, [PairInsertionRule]) <- day14_readInput "data/day14a_input.txt"
-    
+
     putText "Polymer Template:"
     putText template
     putText ""
     putText "Pair Insertion Rules:"
     traverse_ print insertionRules
     putText ""
-    
+
     print $ day14a_compute template insertionRules
 
 day14a_compute :: PolymerTemplate -> [PairInsertionRule] -> Int
@@ -40,28 +40,39 @@ day14a_compute !template !insertionRules =
             drop 10 $
             iterate (runPairInsertionStep insertionRulesMap) template
 
-        elemCounts :: Map Elem Int
-        elemCounts =
-            Map.fromListWith (+) $
-            map (\e -> (e, 1)) $
-            T.unpack template10
-
-        elemCountsSorted :: [Int]
+        elemCountsSorted :: [Count]
         elemCountsSorted =
-            sort $ Map.elems elemCounts
+            sort $ Map.elems $ templateElemCounts template10
 
-        leastCommonCount :: Int
+        leastCommonCount :: Count
         leastCommonCount = unsafeHead elemCountsSorted
 
-        mostCommonCount :: Int
+        mostCommonCount :: Count
         mostCommonCount = unsafeLast elemCountsSorted
     in
         mostCommonCount - leastCommonCount
 
 
 type PolymerTemplate = Text
-
 type Elem = Char
+type ElemPair = (Elem, Elem)
+type Count = Int
+
+templateElemCounts :: PolymerTemplate -> Map Elem Count
+templateElemCounts !template =
+    Map.fromListWith (+) $
+    map (\e -> (e, 1)) $
+    T.unpack template
+
+elemPairsInTemplate :: PolymerTemplate -> [ElemPair]
+elemPairsInTemplate !template =
+    let
+        extractPairs :: [Elem] -> [ElemPair]
+        extractPairs (e1 : e2 : rest) = (e1, e2) : extractPairs (e2 : rest)
+        extractPairs _ = []
+    in
+        extractPairs $ T.unpack template
+
 
 data PairInsertionRule =
     PairInsertionRule {
@@ -78,7 +89,7 @@ instance Show PairInsertionRule where
           , [insertElem]
         ]
 
-runPairInsertionStep :: Map (Elem, Elem) Elem -> PolymerTemplate -> PolymerTemplate
+runPairInsertionStep :: Map ElemPair Elem -> PolymerTemplate -> PolymerTemplate
 runPairInsertionStep insertionRulesMap template =
     let
         run :: String -> String
@@ -91,6 +102,25 @@ runPairInsertionStep insertionRulesMap template =
         run other = other
     in
         T.pack $ run $ T.unpack template
+
+-- | Instead of building the actual polymer template string, just compute show the
+-- counts of each element pair change after one step.
+-- Each pair will become 2 pairs, so just carry over the counts to these.
+runPairInsertionStepB :: Map ElemPair Elem -> Map ElemPair Count -> Map ElemPair Count
+runPairInsertionStepB insertionRulesMap elemPairCounts =
+    let
+        iterateElemPair :: (ElemPair, Count) -> [(ElemPair, Count)]
+        iterateElemPair (pr@(e1, e2), pairCount)
+            | Just eInsert <- Map.lookup pr insertionRulesMap
+            = [ ((e1, eInsert), pairCount)
+              , ((eInsert, e2), pairCount)
+              ]
+            | otherwise
+            = panic "no insertion found for elem pair"
+    in
+        Map.fromListWith (+) $
+        concatMap iterateElemPair $
+        Map.toList elemPairCounts
 
 
 day14_readInput :: FilePath -> IO (PolymerTemplate, [PairInsertionRule])
@@ -111,7 +141,7 @@ day14a_parseLine_PairInsertionRule !txt
     = Nothing
 
 
--- | Answer: ???
+-- | Answer: 10002813279337
 day14b :: IO ()
 day14b = do
     (template, insertionRules) :: (PolymerTemplate, [PairInsertionRule]) <- day14_readInput "data/day14a_input.txt"
@@ -119,4 +149,54 @@ day14b = do
 
 day14b_compute :: PolymerTemplate -> [PairInsertionRule] -> Int
 day14b_compute !template !insertionRules =
-    panic "xxx"
+    let
+        iterationN :: Int
+        iterationN = 40
+
+        lastElem :: Elem
+        lastElem = unsafeLast $ T.unpack template
+
+        insertionRulesMap :: Map (Elem, Elem) Elem
+        insertionRulesMap =
+            Map.fromList $
+            map (\PairInsertionRule{..} -> ((elem1, elem2), insertElem)) insertionRules
+
+        initialPairCounts :: Map ElemPair Count
+        initialPairCounts =
+            Map.fromListWith (+) $
+            map (, 1) $
+            elemPairsInTemplate template
+
+        pairCountsN :: Map ElemPair Count
+        pairCountsN =
+            unsafeHead $
+            drop iterationN $
+            iterate (runPairInsertionStepB insertionRulesMap) initialPairCounts
+
+        elemCountsN :: Map Elem Count
+        elemCountsN =
+            pairCountsToElemCounts lastElem pairCountsN
+
+        elemCountsSorted :: [Count]
+        elemCountsSorted =
+            sort $ Map.elems elemCountsN
+
+        leastCommonCount :: Count
+        leastCommonCount = unsafeHead elemCountsSorted
+
+        mostCommonCount :: Count
+        mostCommonCount = unsafeLast elemCountsSorted
+    in
+        traceMap "pairCountsN = " pairCountsN `seq`
+        traceMap "elemCounts = " elemCountsN `seq`
+        mostCommonCount - leastCommonCount
+
+
+pairCountsToElemCounts :: Elem -> Map ElemPair Count -> Map Elem Count
+pairCountsToElemCounts !lastElem !pairCounts =
+    -- The pairs overlap, so just use the first elem in each pair.
+    -- Then add one count for the last elem in the pattern (which will not change
+    -- from one iteration to the next).
+    Map.fromListWith (+) $
+    (lastElem, 1) : (map (\((e1, _e2), c) -> (e1, c)) $ Map.toList pairCounts)
+
