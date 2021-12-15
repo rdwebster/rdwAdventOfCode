@@ -4,6 +4,8 @@ module Day15
     ) where
 
 import MyPrelude
+import Data.List.NonEmpty ((<|))
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map.Strict as Map
 -- import qualified Data.Set as Set
 import qualified Data.Text as T
@@ -41,13 +43,13 @@ type RiskLevel = Int
 
 data Path =
     Path {
-        pathCoords :: ![Coords]     --TODO: use NonEmpty here?
+        pathCoords :: !(NonEmpty Coords)
       , pathRisk   :: !RiskLevel
     }
     deriving (Show)
 
 pathHead :: Path -> Coords
-pathHead = unsafeHead . pathCoords
+pathHead = NonEmpty.head . pathCoords
 
 data Grid =
     Grid {
@@ -128,7 +130,7 @@ pathsThroughGrid2 grid@Grid{..} =
         endCoord = gridEndCoords grid
 
         startingPath :: Path
-        startingPath = Path [startCoord] 0
+        startingPath = Path (startCoord :| []) 0
 
         findPaths :: Map Coords Path -> [Path] -> (Map Coords Path, [Path])
         findPaths !lowestRiskPaths !curPaths =
@@ -175,7 +177,7 @@ pathsThroughGrid2 grid@Grid{..} =
                         newRisk = riskLevelFn newHead
                     in
                         Path{
-                            pathCoords = newHead : pathCoords
+                            pathCoords = newHead <| pathCoords
                           , pathRisk   = pathRisk + newRisk
                         }
 
