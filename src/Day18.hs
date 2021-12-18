@@ -401,12 +401,21 @@ sfNumParser = do
     pure SFNum{..}
 
 
--- | Answer: ???
+-- | Answer: 4775
 day18b :: IO ()
 day18b = do
     sfNums :: [SFNum] <- day18_readInput "data/day18a_input.txt"
     print $ day18b_compute sfNums
 
 day18b_compute :: [SFNum] -> Int
-day18b_compute _sfNums =
-    panic "xxx"
+day18b_compute !sfNums =
+    let
+        numPairs :: [(SFNum, SFNum)]
+        numPairs = do
+            n1 <- sfNums
+            n2 <- sfNums
+            guard $ n1 /= n2
+            pure (n1, n2)
+    in
+        maximum $
+        map (sfNumMagnitude . uncurry addSFNums) numPairs
