@@ -5,4 +5,4 @@ import MyPrelude
 import Day19
 
 main :: IO ()
-main = day19a
+main = day19b

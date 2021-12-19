@@ -52,6 +52,10 @@ day19a_compute !scannerReports =
 type ScannerID = Int
 type Coords = (Int, Int, Int)
 
+manhattanDist :: Coords -> Coords -> Int
+manhattanDist (x1,y1,z1) (x2,y2,z2) =
+    abs (x1 - x2) + abs (y1 - y2) + abs (z1 - z2)
+
 rotateCoords90x :: Coords -> Coords
 rotateCoords90x (!x,!y,!z) = (x,-z,y)
 
@@ -114,13 +118,14 @@ allCoordPossibilities !c =
 data ScannerReport =
     ScannerReport {
         scannerID       :: !ScannerID
+      , scannerPosition :: !Coords
       , beaconPositions :: ![Coords]
     }
 
 instance Show ScannerReport where
     show ScannerReport{..} =
         Prelude.unlines $
-        ("--- scanner " <> show scannerID <> " ---") :
+        ("--- scanner " <> show scannerID <> " --- " <> show scannerPosition) :
         map (\(x,y,z) ->  mapJoin "," show [x,y,z]) beaconPositions
 
 
@@ -177,6 +182,9 @@ normalizeScannerReport !otherSR !referenceSR =
                         yOffset = otherY - refY
                         zOffset = otherZ - refZ
 
+                        offsetScannerCoords :: Coords
+                        offsetScannerCoords = (-xOffset, -yOffset, -zOffset)
+
                         offsetOtherCoords :: [Coords]
                         offsetOtherCoords =
                             map (\(x,y,z) -> (x-xOffset,y-yOffset,z-zOffset)) otherCoords
@@ -191,6 +199,7 @@ normalizeScannerReport !otherSR !referenceSR =
                     in do
                         guard $ numMatching >= 12
                         pure ScannerReport{ scannerID       = scannerID otherSR
+                                          , scannerPosition = offsetScannerCoords
                                           , beaconPositions = offsetOtherCoords
                                           }
             in
@@ -287,6 +296,10 @@ day19a_parseLines !fileLines =
                     t2 <- T.stripSuffix " ---" t1
                     readMaybe $ T.unpack t2
 
+                -- Initially put all scanners at the origin (local to themselves).
+                scannerPosition :: Coords
+                scannerPosition = (0, 0, 0)
+
                 beaconPositions :: [Coords]
                 beaconPositions =
                     mapMaybe parseCoords coordLines
@@ -306,16 +319,40 @@ day19a_parseLines !fileLines =
         mapMaybe parseScannerBlock scannerLineBlocks
 
 
--- | Answer: ???
+-- | Answer: 12204
 day19b :: IO ()
 day19b = do
     scannerReports :: [ScannerReport] <-
-        day19_readInput "data/day19test_input.txt"
-        -- day19_readInput "data/day19a_input.txt"
+        -- day19_readInput "data/day19test_input.txt"
+        day19_readInput "data/day19a_input.txt"
 
     print $ day19b_compute scannerReports
 
 day19b_compute :: [ScannerReport] -> Int
-day19b_compute _scannerReports =
-    panic "xxx"
+day19b_compute !scannerReports =
+    let
+        -- sr0 = scannerReports !! 0
+        -- sr1 = scannerReports !! 1
+        --
+        -- sr1_norm = normalizeScannerReport sr1 sr0
+
+        allNorms =
+            traceList "Normalized Scanner Reports" $
+            normalizeAllScannerReports scannerReports
+
+        scannerCoords :: [Coords]
+        scannerCoords = scannerPosition <$> allNorms
+
+        maxDist :: Int
+        maxDist =
+            maximum $ do
+                c1 <- scannerCoords
+                c2 <- scannerCoords
+                pure $ manhattanDist c1 c2
+    in
+        -- traceVal "sr0 = " sr0 `seq`
+        -- traceVal "sr1 = " sr1 `seq`
+        -- traceVal "sr1_norm = " sr1_norm `seq`
+        -- traceList "scannerCoords = " scannerCoords `seq`
+        maxDist
 
