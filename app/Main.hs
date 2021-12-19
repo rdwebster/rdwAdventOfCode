@@ -2,7 +2,7 @@ module Main where
 
 import MyPrelude
 
-import Day15
+import Day19
 
 main :: IO ()
-main = day15b
+main = day19a
