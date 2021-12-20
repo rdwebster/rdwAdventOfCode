@@ -36,12 +36,11 @@ day20a = do
 day20a_compute :: EnhAlgorithm -> Image -> Int
 day20a_compute !enhAlgorithm !image =
     let
-
         enhImg1 :: Image
-        enhImg1 = enhanceImage enhAlgorithm image
+        enhImg1 = enhanceImage enhAlgorithm False image
 
         enhImg2 :: Image
-        enhImg2 = enhanceImage enhAlgorithm enhImg1
+        enhImg2 = enhanceImage enhAlgorithm False enhImg1
     in
         traceVal "enhImg1 = \n" enhImg1 `seq`
         traceVal "enhImg2 = \n" enhImg2 `seq`
@@ -52,13 +51,14 @@ type EnhAlgorithm = Vector Bool
 
 type Coords = (Int, Int)
 
-newtype Image =
+data Image =
     Image {
-        lightPixels :: Set Coords
+        lightPixels :: !(Set Coords)
+      , inverted    :: !Bool
     }
 
 instance Show Image where
-    show Image{..} =
+    show img@Image{..} =
         let
             minX = minimum $ fst <$> Set.toList lightPixels
             maxX = maximum $ fst <$> Set.toList lightPixels
@@ -70,7 +70,7 @@ instance Show Image where
                 let
                     cellChar :: Int -> Char
                     cellChar !x
-                        | Set.member (x,y) lightPixels = '#'
+                        | isPixelLit img (x,y) = '#'
                         | otherwise = '.'
                 in
                     cellChar <$> [minX .. maxX]
@@ -78,8 +78,13 @@ instance Show Image where
             Prelude.unlines $
             rowStr <$> [minY .. maxY]
 
-enhanceImage :: EnhAlgorithm -> Image -> Image
-enhanceImage !enhAlgorithm Image{..} =
+isPixelLit :: Image -> Coords -> Bool
+isPixelLit Image{..} !c
+    | inverted = not $ Set.member c lightPixels
+    | otherwise = Set.member c lightPixels
+
+enhanceImage :: EnhAlgorithm -> Bool -> Image -> Image
+enhanceImage !enhAlgorithm !alternateInverted img@Image{..} =
     let
         minX = minimum $ fst <$> Set.toList lightPixels
         maxX = maximum $ fst <$> Set.toList lightPixels
@@ -98,17 +103,17 @@ enhanceImage !enhAlgorithm Image{..} =
 
                 pixelsLit :: [Bool]
                 pixelsLit =
-                    map (`Set.member` lightPixels) pixelsToCheck
+                    isPixelLit img <$> pixelsToCheck
 
                 enhIndx :: Int
                 enhIndx = bitsToInt pixelsLit
             in
-                enhAlgorithm V.! enhIndx
+                if newInverted then
+                    not (enhAlgorithm V.! enhIndx)
+                else
+                    enhAlgorithm V.! enhIndx
 
-        padding =
-            1
-            -- 2
-            -- 5
+        padding = 1
 
         newLightPixels :: Set Coords
         newLightPixels =
@@ -117,8 +122,13 @@ enhanceImage !enhAlgorithm Image{..} =
                 x <- [(minX-padding)..(maxX+padding)]
                 y <- [(minY-padding)..(maxY+padding)]
                 pure (x, y)
+
+        newInverted :: Bool
+        newInverted =
+            if alternateInverted then not inverted
+            else inverted
     in
-        Image newLightPixels
+        Image newLightPixels newInverted
 
 bitsToInt :: [Bool] -> Int
 bitsToInt !bitsSet =
@@ -149,13 +159,19 @@ day20_parseImage !imageLines =
             filter (\pr -> snd pr == '#') $
             zip [0..] $
             T.unpack rowTxt
+
+        lightPixels :: Set Coords
+        lightPixels =
+            mconcat $
+            zipWith parseRow [0..] imageLines
+
+        inverted :: Bool
+        inverted = False
     in
-        Image $
-        mconcat $
-        zipWith parseRow [0..] imageLines
+        Image{..}
 
 
--- | Answer: ???            -- 20330 is too high
+-- | Answer: 18732
 day20b :: IO ()
 day20b = do
     (enhAlgorithm, image) :: (EnhAlgorithm, Image) <-
@@ -169,9 +185,11 @@ day20b_compute !enhAlgorithm !image =
     let
         n = 50
         
+        -- Note that the background will alternate between light and dark for the full puzzle input.
+        -- Perhpas try changing how the points are represented to be the light or dark pixels would work better here.
         enhImg :: Image
         enhImg =
-            iterate (enhanceImage enhAlgorithm) image !! n
+            iterate (enhanceImage enhAlgorithm True) image !! n
     in
         traceVal "enhImg = \n" enhImg `seq`
         Set.size $ lightPixels enhImg
