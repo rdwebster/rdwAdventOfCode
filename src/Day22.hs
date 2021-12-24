@@ -37,17 +37,59 @@ day22a_compute !rebootSteps =
     runReboot rebootSteps
 
 type Pos = Int
-type Range = (Pos, Pos)    -- (start,end)  inclusive
 type Coords = (Pos, Pos, Pos)
+
+data Range =
+    Range {
+        rangeStart :: !Pos
+      , rangeEnd   :: !Pos
+    }
+    deriving (Eq, Ord)
+
+instance Show Range where
+    show Range{..} =
+        mconcat [
+            show rangeStart
+          , ".."
+          , show rangeEnd
+          ]
+
+makeRange :: Pos -> Pos -> Range
+makeRange !v1 !v2 =
+    Range {
+        rangeStart = min v1 v2
+      , rangeEnd   = max v1 v2
+    }
+
+rangeSize :: Range -> Int
+rangeSize Range{..} =
+    (rangeEnd - rangeStart + 1)
+
+rangeValues :: Range -> [Pos]
+rangeValues Range{..} =
+    [rangeStart .. rangeEnd]
+
+isSubRange :: Range -> Range -> Bool
+isSubRange !range1 !range2 =
+    rangeStart range1 >= rangeStart range2
+    && rangeEnd range1 <= rangeEnd range2
+
+rangesOverlap :: Range -> Range -> Bool
+rangesOverlap !r1 !r2 =
+    rangeStart r1    `inRange` r2
+    || rangeEnd r1   `inRange` r2
+    || rangeStart r2 `inRange` r1
+    || rangeEnd r2   `inRange` r1
+
+inRange :: Pos -> Range -> Bool
+inRange !v Range{..} =
+    v >= rangeStart && v <= rangeEnd
 
 data Region =
     Region {
-        xFrom  :: !Pos
-      , xTo    :: !Pos
-      , yFrom  :: !Pos
-      , yTo    :: !Pos
-      , zFrom  :: !Pos
-      , zTo    :: !Pos
+        xRange :: !Range
+      , yRange :: !Range
+      , zRange :: !Range
     }
     deriving (Eq, Ord)
 
@@ -55,36 +97,27 @@ instance Show Region where
     show Region{..} =
         mconcat [
             "x="
-          , show xFrom
-          , ".."
-          , show xTo
+          , show xRange
           , ",y="
-          , show yFrom
-          , ".."
-          , show yTo
+          , show yRange
           , ",z="
-          , show zFrom
-          , ".."
-          , show zTo
+          , show zRange
         ]
 
 makeRegion :: Pos -> Pos -> Pos -> Pos -> Pos -> Pos -> Region
 makeRegion !x1 !x2 !y1 !y2 !z1 !z2 =
     Region {
-        xFrom = min x1 x2
-      , xTo   = max x1 x2
-      , yFrom = min y1 y2
-      , yTo   = max y1 y2
-      , zFrom = min z1 z2
-      , zTo   = max z1 z2
+        xRange = makeRange x1 x2
+      , yRange = makeRange y1 y2
+      , zRange = makeRange z1 z2
     }
 
 -- | Returns the number of cubes in a region.
 regionSize :: Region -> Int
 regionSize Region{..} =
-    (xTo - xFrom + 1)
-    * (yTo - yFrom + 1)
-    * (zTo - zFrom + 1)
+    rangeSize xRange
+    * rangeSize yRange
+    * rangeSize zRange
 
 limitRegionSize :: Pos -> Pos -> Region -> Maybe Region
 limitRegionSize !minPos !maxPos Region{..} =
@@ -94,73 +127,57 @@ limitRegionSize !minPos !maxPos Region{..} =
             | p < minPos = minPos
             | p > maxPos = maxPos
             | otherwise  = p
+
+        limitRange :: Range -> Maybe Range
+        limitRange Range{..} = do
+            guard $ rangeEnd >= minPos
+            guard $ rangeStart <= maxPos
+            pure Range{ rangeStart = limitPos rangeStart
+                      , rangeEnd   = limitPos rangeEnd
+                      }
     in do
-        guard $ xTo   >= minPos
-        guard $ xFrom <= maxPos
-
-        guard $ yTo   >= minPos
-        guard $ yFrom <= maxPos
-
-        guard $ zTo   >= minPos
-        guard $ zFrom <= maxPos
-
-        pure Region{
-            xFrom = limitPos xFrom
-          , xTo   = limitPos xTo
-          , yFrom = limitPos yFrom
-          , yTo   = limitPos yTo
-          , zFrom = limitPos zFrom
-          , zTo   = limitPos zTo
-        }
+        newXRange <- limitRange xRange
+        newYRange <- limitRange yRange
+        newZRange <- limitRange zRange
+        pure Region{ xRange = newXRange
+                   , yRange = newYRange
+                   , zRange = newZRange
+                   }
 
 -- | Returns True if the first region fits completely within the 2nd region.
 isSubRegion :: Region -> Region -> Bool
 isSubRegion !region1 !region2 =
-    isSubRange (xFrom region1, xTo region1) (xFrom region2, xTo region2)
-    && isSubRange (yFrom region1, yTo region1) (yFrom region2, yTo region2)
-    && isSubRange (zFrom region1, zTo region1) (zFrom region2, zTo region2)
+    isSubRange (xRange region1) (xRange region2)
+    && isSubRange (yRange region1) (yRange region2)
+    && isSubRange (zRange region1) (zRange region2)
 
 regionsOverlap :: Region -> Region -> Bool
 regionsOverlap !region1 !region2 =
-    rangesOverlap (xFrom region1, xTo region1) (xFrom region2, xTo region2)
-    && rangesOverlap (yFrom region1, yTo region1) (yFrom region2, yTo region2)
-    && rangesOverlap (zFrom region1, zTo region1) (zFrom region2, zTo region2)
+    rangesOverlap (xRange region1) (xRange region2)
+    && rangesOverlap (yRange region1) (yRange region2)
+    && rangesOverlap (zRange region1) (zRange region2)
+
+splitRange :: Pos -> Range -> [Range]
+splitRange !splitPos r@Range{..}
+    | splitPos < rangeStart || splitPos >= rangeEnd
+    = [r]
+    | otherwise
+    = [ r{rangeEnd = splitPos}, r{rangeStart = splitPos + 1} ]
 
 splitRegionX :: Pos -> Region -> [Region]
 splitRegionX !xSplit r@Region{..}
-    | xSplit < xFrom || xSplit >= xTo
-    = [r]
-    | otherwise
-    = [ r{xTo = xSplit}, r{xFrom = xSplit + 1} ]
+    | xRanges <- splitRange xSplit xRange
+    = map (\xr -> r{xRange = xr}) xRanges
 
 splitRegionY :: Pos -> Region -> [Region]
 splitRegionY !ySplit r@Region{..}
-    | ySplit < yFrom || ySplit >= yTo
-    = [r]
-    | otherwise
-    = [ r{yTo = ySplit}, r{yFrom = ySplit + 1} ]
+    | yRanges <- splitRange ySplit yRange
+    = map (\yr -> r{yRange = yr}) yRanges
 
 splitRegionZ :: Pos -> Region -> [Region]
 splitRegionZ !zSplit r@Region{..}
-    | zSplit < zFrom || zSplit >= zTo
-    = [r]
-    | otherwise
-    = [ r{zTo = zSplit}, r{zFrom = zSplit + 1} ]
-
-isSubRange :: Range -> Range -> Bool
-isSubRange (!r1Start, !r1End) (!r2Start, !r2End) =
-    r1Start >= r2Start && r1End <= r2End
-
-rangesOverlap :: Range -> Range -> Bool
-rangesOverlap r1@(!r1Start, !r1End) r2@(!r2Start, !r2End) =
-    r1Start    `inRange` r2
-    || r1End   `inRange` r2
-    || r2Start `inRange` r1
-    || r2End   `inRange` r1
-
-inRange :: Pos -> Range -> Bool
-inRange !v (!rangeStart, rangeEnd) =
-    v >= rangeStart && v <= rangeEnd
+    | zRanges <- splitRange zSplit zRange
+    = map (\zr -> r{zRange = zr}) zRanges
 
 
 data RebootStep =
@@ -192,9 +209,9 @@ runRebootStep !onCells RebootStep{turnOn, region = Region{..}} =
         cellsToChange :: Set Coords
         cellsToChange =
             Set.fromList $ do
-                x <- [xFrom .. xTo]
-                y <- [yFrom .. yTo]
-                z <- [zFrom .. zTo]
+                x <- rangeValues xRange
+                y <- rangeValues yRange
+                z <- rangeValues zRange
                 pure (x,y,z)
     in
         if turnOn then
@@ -213,12 +230,7 @@ runRebootStepB !onRegions rs@RebootStep{..} =
         updatedOnRegions :: Set Region
         updatedOnRegions =
             Set.fromList $
-            -- concatMap (updateRegion region) onRegions
-            concatMap (\onR ->
-                          traceVal "...updating with ON region: " onR `seq`
-                          traceVal "...updating with ON region: RESULT = " $
-                          updateRegion region onR
-                      ) onRegions
+            concatMap (updateRegion region) onRegions
     in
         traceVal "Running reboot step: " rs `seq`
         (if turnOn then Set.insert region else identity) updatedOnRegions
@@ -236,21 +248,21 @@ updateRegion !newRegion !oldRegion
     | isSubRegion oldRegion newRegion
     = []
 
-    | (xSplit : _) <- splitPoints (xFrom newRegion, xTo newRegion) (xFrom oldRegion, xTo oldRegion)
+    | (xSplit : _) <- splitPoints (xRange newRegion) (xRange oldRegion)
     , splitRs <- splitRegionX xSplit oldRegion
     =
         -- traceVal "____ X-splitRs = " splitRs `seq`
         -- traceVal "____ X-split :: RES = " $
         concatMap (updateRegion newRegion) splitRs
 
-    | (ySplit : _) <- splitPoints (yFrom newRegion, yTo newRegion) (yFrom oldRegion, yTo oldRegion)
+    | (ySplit : _) <- splitPoints (yRange newRegion) (yRange oldRegion)
     , splitRs <- splitRegionY ySplit oldRegion
     =
         -- traceVal "____ Y-splitRs = " splitRs `seq`
         -- traceVal "____ Y-split :: RES = " $
         concatMap (updateRegion newRegion) splitRs
 
-    | (zSplit : _) <- splitPoints (zFrom newRegion, zTo newRegion) (zFrom oldRegion, zTo oldRegion)
+    | (zSplit : _) <- splitPoints (zRange newRegion) (zRange oldRegion)
     , splitRs <- splitRegionZ zSplit oldRegion
     =
         -- traceVal "____ Z-splitRs = " splitRs `seq`
@@ -265,7 +277,8 @@ updateRegion !newRegion !oldRegion
 -- | Compute the points at which to split the old region
 -- based on the new region start/end postions.
 splitPoints :: Range -> Range -> [Pos]
-splitPoints rNew@(!newStart, !newEnd) rOld@(!oldStart, oldEnd)
+splitPoints rNew@Range{rangeStart = newStart, rangeEnd = newEnd}
+            rOld@Range{rangeStart = oldStart, rangeEnd = oldEnd}
     | not $ rangesOverlap rNew rOld
     = []
     | isSubRange rOld rNew
