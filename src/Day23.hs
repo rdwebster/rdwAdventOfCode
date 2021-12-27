@@ -9,6 +9,8 @@ import Control.Concurrent.STM.TVar (TVar, newTVarIO, readTVarIO, writeTVar)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 -- import qualified Data.Text as T
+import Data.Vector (Vector)
+import qualified Data.Vector as V
 -- import qualified Text.Megaparsec as P
 -- import qualified Text.Megaparsec.Char as PC
 -- import qualified Text.Megaparsec.Char.Lexer as PL
@@ -25,6 +27,13 @@ day23a = do
 
     let initialState :: BurrowState
         initialState = makeInitialBurrowState initRoomAmphs
+
+    putText "Starting State:"
+    print initialState
+
+    let nextStates = nextPossibleBurrowStates initialState
+    putText "Next States:"
+    traverse_ print nextStates    
 
     res :: Int <- day23a_compute initialState
     print res
@@ -75,19 +84,64 @@ amphFinalRoom AmphB = RoomB
 amphFinalRoom AmphC = RoomC
 amphFinalRoom AmphD = RoomD
 
+roomFinalAmph :: Room -> AmphipodType
+roomFinalAmph RoomA = AmphA
+roomFinalAmph RoomB = AmphB
+roomFinalAmph RoomC = AmphC
+roomFinalAmph RoomD = AmphD
+
 data RoomState =
     RoomState {
         room           :: !Room
-      , topAmphipod    :: !(Maybe AmphipodType)
-      , bottomAmphipod :: !(Maybe AmphipodType)
+      , roomAmphipods  :: !(Vector (Maybe AmphipodType))        -- top to bottom
+      -- , topAmphipod    :: !(Maybe AmphipodType)
+      -- , bottomAmphipod :: !(Maybe AmphipodType)
     }
     deriving (Show)
 
+nAmphipodsInRoom :: RoomState -> Int
+nAmphipodsInRoom RoomState{..} =
+    length $
+    filter isJust $
+    V.toList roomAmphipods
+
+isRoomFinished :: RoomState -> Bool
+isRoomFinished RoomState{..} =
+    all (\maybeAmph -> (amphFinalRoom <$> maybeAmph) == Just room) roomAmphipods
+
 canMoveAmphToRoom :: AmphipodType -> RoomState -> Bool
 canMoveAmphToRoom !amphType RoomState{..} =
-    isNothing bottomAmphipod && isNothing topAmphipod
-    || bottomAmphipod == Just amphType && isNothing topAmphipod
-    
+    all (\maybeAmph -> maybe True (== amphType) maybeAmph) roomAmphipods
+    && any isNothing roomAmphipods
+
+openRoomPosition :: RoomState -> Maybe Int
+openRoomPosition rs@RoomState{..}
+    | nAmphsAlreadyInRoom :: Int <- nAmphipodsInRoom rs
+    , nPositions <- V.length roomAmphipods
+    = if nAmphsAlreadyInRoom < nPositions
+      then Just $ nPositions - nAmphsAlreadyInRoom - 1
+      else Nothing
+
+moveAmphToRoom :: RoomState -> RoomState
+moveAmphToRoom rs@RoomState{..}
+    | Just newAmphPos <- openRoomPosition rs
+    = rs{ roomAmphipods = V.update roomAmphipods $
+                          V.singleton (newAmphPos, Just $ roomFinalAmph room)
+        }
+    | otherwise
+    = panic "unexpected: moveAmphToRoom"
+
+moveAmphFromRoom :: RoomState -> RoomState
+moveAmphFromRoom rs@RoomState{..}
+    | nAmphsAlreadyInRoom :: Int <- nAmphipodsInRoom rs
+    , nAmphsAlreadyInRoom > 0
+    , nPositions <- V.length roomAmphipods
+    , clearAmphPos <- nPositions - nAmphsAlreadyInRoom
+    = rs{ roomAmphipods = V.update roomAmphipods $
+                          V.singleton (clearAmphPos, Nothing)
+        }
+    | otherwise
+    = panic "unexpected: moveAmphFromRoom"
 
 data HallSpotState =
     HallSpotState {
@@ -116,14 +170,20 @@ instance Show BurrowState where
             hallSpotChar !hallSpot =
                 maybe '.' amphChar $ hallwaySpotOccupant st hallSpot
 
-            roomChars :: Room -> (Char, Char)   -- (top, bottom)
-            roomChars !roomToCheck
-                | Just RoomState{..} <- Map.lookup roomToCheck roomsState
-                = ( maybe '.' amphChar topAmphipod
-                  , maybe '.' amphChar bottomAmphipod
-                  )
+            nRoomPositions :: Int
+            nRoomPositions
+                | Just RoomState{..} <- Map.lookup RoomA roomsState
+                = V.length roomAmphipods
                 | otherwise
-                = ('?', '?')
+                = panic "unexpected: nRoomPositions"
+
+            roomCharAtPos :: Room -> Int -> Char
+            roomCharAtPos !roomToCheck !roomPos
+                | Just RoomState{..} <- Map.lookup roomToCheck roomsState
+                , maybeAmph <- roomAmphipods V.! roomPos
+                = maybe '.' amphChar maybeAmph
+                | otherwise
+                = '?'
 
             h1 = hallSpotChar HallSpot1
             h2 = hallSpotChar HallSpot2
@@ -133,35 +193,52 @@ instance Show BurrowState where
             h6 = hallSpotChar HallSpot6
             h7 = hallSpotChar HallSpot7
 
-            (rAtop, rAbtm) = roomChars RoomA
-            (rBtop, rBbtm) = roomChars RoomB
-            (rCtop, rCbtm) = roomChars RoomC
-            (rDtop, rDbtm) = roomChars RoomD
+            -- (rAtop, rAbtm) = roomChars RoomA
+            -- (rBtop, rBbtm) = roomChars RoomB
+            -- (rCtop, rCbtm) = roomChars RoomC
+            -- (rDtop, rDbtm) = roomChars RoomD
+
+            roomRows :: [String]
+            roomRows =
+                map (\posN ->
+                        let
+                            rA = roomCharAtPos RoomA posN
+                            rB = roomCharAtPos RoomB posN
+                            rC = roomCharAtPos RoomC posN
+                            rD = roomCharAtPos RoomD posN
+                        in
+                            ['#', '#', '#', rA, '#', rB, '#', rC, '#', rD, '#', '#', '#']
+                    ) $
+                [0 .. (nRoomPositions - 1)]
+                    
+                    
         in
-            Prelude.unlines [
-                "BurrowState: cost = " <> show totalMoveCost
+            Prelude.unlines $
+              [ "BurrowState: cost = " <> show totalMoveCost
               , "#############"
               , ['#', h1, h2, '.', h3, '.', h4, '.', h5, '.', h6, h7, '#']
-              , ['#', '#', '#', rAtop, '#', rBtop, '#', rCtop, '#', rDtop, '#', '#', '#']
-              , [' ', ' ', '#', rAbtm, '#', rBbtm, '#', rCbtm, '#', rDbtm, '#', ' ', ' ']
-              , "  #########  "
-            ]
+              -- , ['#', '#', '#', rAtop, '#', rBtop, '#', rCtop, '#', rDtop, '#', '#', '#']
+              -- , [' ', ' ', '#', rAbtm, '#', rBbtm, '#', rCbtm, '#', rDbtm, '#', ' ', ' ']
+              -- , "  #########  "
+              ]
+              <> roomRows
+              <> ["  #########  "]
 
 makeInitialBurrowState :: [[AmphipodType]] -> BurrowState
 makeInitialBurrowState !initRoomAmphs
-    | [ [r1Top,r1Bottom]
-      , [r2Top,r2Bottom]
-      , [r3Top,r3Bottom]
-      , [r4Top,r4Bottom]
-      ] <- initRoomAmphs
+    | [ r1Amphipods, r2Amphipods, r3Amphipods, r4Amphipods ] <- initRoomAmphs
+      -- , [r2Top,r2Bottom]
+      -- , [r3Top,r3Bottom]
+      -- , [r4Top,r4Bottom]
+      -- ] <- initRoomAmphs
     , hallwayState <- Map.fromList $
                       map (\hs -> (hs, HallSpotState hs Nothing)) $
                       [minBound .. maxBound]
     , roomsState <- Map.fromList
-                    [ (RoomA, RoomState RoomA (Just r1Top) (Just r1Bottom))
-                    , (RoomB, RoomState RoomB (Just r2Top) (Just r2Bottom))
-                    , (RoomC, RoomState RoomC (Just r3Top) (Just r3Bottom))
-                    , (RoomD, RoomState RoomD (Just r4Top) (Just r4Bottom))
+                    [ (RoomA, RoomState RoomA $ V.fromList $ Just <$> r1Amphipods)
+                    , (RoomB, RoomState RoomB $ V.fromList $ Just <$> r2Amphipods)
+                    , (RoomC, RoomState RoomC $ V.fromList $ Just <$> r3Amphipods)
+                    , (RoomD, RoomState RoomD $ V.fromList $ Just <$> r4Amphipods)
                     ]
     , totalMoveCost <- 0
     = BurrowState {..}
@@ -178,18 +255,7 @@ isHallwaySpotOccupied !burrowState !hallSpot =
 
 isFinishedState :: BurrowState -> Bool
 isFinishedState BurrowState{..} =
-    let
-        isRoomFinished :: RoomState -> Bool
-        isRoomFinished RoomState{..}
-            | Just top <- topAmphipod
-            , Just bottom <- bottomAmphipod
-            , amphFinalRoom top == room
-            , amphFinalRoom bottom == room
-            = True
-            | otherwise
-            = False
-    in
-        all isRoomFinished roomsState
+    all isRoomFinished roomsState
 
 -- | Info about the number of moves between a room
 -- (the top spot) and a hallway position.
@@ -243,10 +309,10 @@ allMoveInfos =
     , makeMoveInfo HallSpot6 RoomC 4 [HallSpot5]
     , makeMoveInfo HallSpot6 RoomD 2 []
 
-    , makeMoveInfo HallSpot7 RoomA 9 [HallSpot3,HallSpot4,HallSpot5]
-    , makeMoveInfo HallSpot7 RoomB 7 [HallSpot4,HallSpot5]
-    , makeMoveInfo HallSpot7 RoomC 5 [HallSpot5]
-    , makeMoveInfo HallSpot7 RoomD 3 []
+    , makeMoveInfo HallSpot7 RoomA 9 [HallSpot3,HallSpot4,HallSpot5,HallSpot6]
+    , makeMoveInfo HallSpot7 RoomB 7 [HallSpot4,HallSpot5,HallSpot6]
+    , makeMoveInfo HallSpot7 RoomC 5 [HallSpot5,HallSpot6]
+    , makeMoveInfo HallSpot7 RoomD 3 [HallSpot6]
     ]
 
 runSteps :: TVar MoveCost -> BurrowState -> IO [BurrowState]
@@ -282,25 +348,31 @@ nextPossibleBurrowStates !startingState =
             , Just MoveInfo{..} <- Map.lookup (spotID, finalRoomType) moveInfoMap
             , not $ any (isHallwaySpotOccupied startingState) spotsCrossed
               -- Check if there is already an amphipod (of this type) in the room.
-            , amphipodInRoom :: Bool <- isJust $ bottomAmphipod destRoomState
-            , nTotalSteps <- nSteps + (if amphipodInRoom then 0 else 1)
+            -- , nAmphsAlreadyInRoom :: Int <- nAmphipodsInRoom destRoomState
+            -- , moveToRoomPos :: Int <- V.length (roomAmphipods destRoomState) - nAmphsAlreadyInRoom - 1
+            , Just moveToRoomPos <- openRoomPosition destRoomState
+            , nTotalSteps <- nSteps + moveToRoomPos
             , moveCost <- amphMoveCost amph * nTotalSteps
               -- Update the hallway state to remove the amphipod from its spot.
             , newHallwayState <- Map.insert spotID
                                             (HallSpotState spotID Nothing)
                                             (hallwayState startingState)
-              -- Update the room state to include the amphipod in the top or bottom spot.
-            , updateRoom    <-
-                if amphipodInRoom
-                then destRoomState{topAmphipod    = Just amph}
-                else destRoomState{bottomAmphipod = Just amph}
+              -- Update the room state to include the amphipod in the lowest available spot.
+            , updateRoom <- moveAmphToRoom destRoomState
+                -- if amphipodInRoom
+                -- then destRoomState{topAmphipod    = Just amph}
+                -- else destRoomState{bottomAmphipod = Just amph}
             , newRoomsState <- Map.insert finalRoomType
                                           updateRoom
                                           (roomsState startingState)
-            = Just BurrowState{ hallwayState  = newHallwayState
-                              , roomsState    = newRoomsState
-                              , totalMoveCost = totalMoveCost startingState + moveCost
-                              }
+            =
+                -- traceVal "\n\ntryMovingAmphToFinalRoom :: moveToRoomPos =" moveToRoomPos `seq`
+                -- traceVal "tryMovingAmphToFinalRoom :: before =" startingState `seq`
+                -- traceVal "tryMovingAmphToFinalRoom :: after =" $
+                Just BurrowState{ hallwayState  = newHallwayState
+                                , roomsState    = newRoomsState
+                                , totalMoveCost = totalMoveCost startingState + moveCost
+                                }
             | otherwise
             = Nothing
 
@@ -308,7 +380,7 @@ nextPossibleBurrowStates !startingState =
         tryMovingToHallway roomSt@RoomState{..} =
             case amphToMoveOutOfRoom roomSt of
             Nothing -> []
-            Just (amphToMove, atTop) ->
+            Just (amphToMove, fromRoomPos) ->
                 let
                     -- Try moving from this room to the given hall spot.
                     checkHallSpot :: HallSpotState -> Maybe BurrowState
@@ -316,22 +388,23 @@ nextPossibleBurrowStates !startingState =
                         | Just MoveInfo{..} <- Map.lookup (spotID, room) moveInfoMap
                         , Nothing <- amphipod
                         , not $ any (isHallwaySpotOccupied startingState) spotsCrossed
-                        , nTotalSteps <- nSteps + (if atTop then 0 else 1)
+                        , nTotalSteps <- nSteps + fromRoomPos
                         , moveCost <- amphMoveCost amphToMove * nTotalSteps
                         , newHallwayState <- Map.insert spotID
                                                 (HallSpotState spotID $ Just amphToMove)
                                                 (hallwayState startingState)
-                        , updateRoom <-
-                            if atTop
-                            then roomSt{topAmphipod = Nothing}
-                            else roomSt{bottomAmphipod = Nothing}
+                        , updateRoom <- moveAmphFromRoom roomSt
                         , newRoomsState <- Map.insert room
                                                 updateRoom
                                                 (roomsState startingState)
-                        = Just BurrowState{ hallwayState  = newHallwayState
-                                          , roomsState    = newRoomsState
-                                          , totalMoveCost = totalMoveCost startingState + moveCost
-                                          }
+                        =
+                            -- traceVal "\n\tryMovingToHallway :: fromRoomPos =" fromRoomPos `seq`
+                            -- traceVal "tryMovingToHallway :: before =" startingState `seq`
+                            -- traceVal "tryMovingToHallway :: after =" $
+                            Just BurrowState{ hallwayState  = newHallwayState
+                                            , roomsState    = newRoomsState
+                                            , totalMoveCost = totalMoveCost startingState + moveCost
+                                            }
                         | otherwise
                         = Nothing
                 in
@@ -344,29 +417,49 @@ nextPossibleBurrowStates !startingState =
             Map.elems $
             roomsState startingState
 
-amphToMoveOutOfRoom :: RoomState -> Maybe (AmphipodType, Bool)  -- (amphType, atTop)
+amphToMoveOutOfRoom :: RoomState -> Maybe (AmphipodType, Int)  -- (amphType, roomPosFromTop)
 amphToMoveOutOfRoom RoomState{..}
-    | Just top    <- topAmphipod
-    , Just bottom <- bottomAmphipod
-    , amphFinalRoom top /= room || amphFinalRoom bottom /= room
-    = Just (top, True)
-    | Nothing <- topAmphipod
-    , Just bottom <- bottomAmphipod
-    , amphFinalRoom bottom /= room
-    = Just (bottom, False)
+    | all (\maybeAmph -> maybe True (== roomFinalAmph room) maybeAmph) roomAmphipods
+    = Nothing
+    | (emptySpots, filledSpots) <- V.span isNothing roomAmphipods
+    , not $ V.null filledSpots
+    , Just firstRoomAmph <- V.head filledSpots
+    = Just (firstRoomAmph, V.length emptySpots)
     | otherwise
     = Nothing
 
 
--- | Answer: ???
+-- | Answer: 49936
 day23b :: IO ()
 day23b = do
+    let initRoomAmphs =
+            -- [ [AmphB, AmphD, AmphD, AmphA]
+            -- , [AmphC, AmphC, AmphB, AmphD]
+            -- , [AmphB, AmphB, AmphA, AmphC]
+            -- , [AmphD, AmphA, AmphC, AmphA]
+            -- ]  -- test
+            [ [AmphA, AmphD, AmphD, AmphB]
+            , [AmphC, AmphC, AmphB, AmphA]
+            , [AmphB, AmphB, AmphA, AmphD]
+            , [AmphD, AmphA, AmphC, AmphC]
+            ]  -- actual
+
     let initialState :: BurrowState
-        initialState =
-            panic "xxx"
+        initialState = makeInitialBurrowState initRoomAmphs
 
-    print $ day23b_compute initialState
+    putText "Starting State:"
+    print initialState
 
-day23b_compute :: BurrowState -> Int
-day23b_compute _initialState =
-    panic "xxx"
+    -- let nextStates = nextPossibleBurrowStates initialState
+    -- putText "Next States:"
+    -- traverse_ print nextStates
+
+    res :: Int <- day23a_compute initialState
+    print res
+
+-- day23b_compute :: BurrowState -> IO Int
+-- day23b_compute !initialState = do
+--     minMoveCostVar <- newTVarIO maxBound
+--     allFinalStates :: [BurrowState] <- runSteps minMoveCostVar initialState
+--     pure $ minimum $ totalMoveCost <$> allFinalStates
+
