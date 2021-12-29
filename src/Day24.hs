@@ -33,7 +33,7 @@ day24a = do
 
 
 day24a_compute :: Program -> [Value]
-day24a_compute !program =
+day24a_compute _program =
     let
         -- Rules:
         -- D6  = D5-1
@@ -68,7 +68,6 @@ day24a_compute !program =
             guard $ d14 > 0
             pure [d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,d13,d14]
     in
-        -- foldl' (\cur dig -> cur * 10 + dig) 0 $
         unsafeHead digitCombos
 
 type Program = [Instruction]
@@ -306,17 +305,57 @@ parseVariable =
     <|>
     (symbol "z" >> pure Var_z)
 
--- | Answer: ???
+-- | Answer: 31162141116841
 day24b :: IO ()
 day24b = do
     program :: Program <- day24_readInput "data/day24a_input.txt"
 
-    putText "Program Instructions:"
-    traverse_ print program
-    putText ""
+    -- putText "Program Instructions:"
+    -- traverse_ print program
+    -- putText ""
 
-    print $ day24b_compute program
+    let smallestValidInput = day24b_compute program
+    putText "Smallest valid input:"
+    print smallestValidInput
+    print $ foldl' (\cur dig -> cur * 10 + dig) 0 smallestValidInput
 
-day24b_compute :: Program -> Int
+    print $ runProgram smallestValidInput program
+
+
+day24b_compute :: Program -> [Value]
 day24b_compute _program =
-    panic "xxx"
+    let
+        -- Rules:
+        -- D6  = D5-1
+        -- D8  = D7-3
+        -- D9  = D4-5
+        -- D11 = D10+5
+        -- D12 = D3+7
+        -- D13 = D2+3
+        -- D14 = D1-2
+        digitCombos :: [[Value]]
+        digitCombos = do
+            d1 <- [1..9]
+            d2 <- [1..9]
+            d3 <- [1..9]
+            d4 <- [1..9]
+            d5 <- [1..9]
+            let d6 = d5 - 1
+            guard $ d6 > 0
+            d7 <- [1..9]
+            let d8 = d7 - 3
+            guard $ d8 > 0
+            let d9 = d4 - 5
+            guard $ d9 > 0
+            d10 <- [1..9]
+            let d11 = d10 + 5
+            guard $ d11 < 10
+            let d12 = d3 + 7
+            guard $ d12 < 10
+            let d13 = d2 + 3
+            guard $ d13 < 10
+            let d14 = d1 - 2
+            guard $ d14 > 0
+            pure [d1,d2,d3,d4,d5,d6,d7,d8,d9,d10,d11,d12,d13,d14]
+    in
+        unsafeHead digitCombos
